@@ -4,13 +4,17 @@ var windowPlugin = Chart.PluginBase.extend({
         if (typeof chart.config.window == 'undefined') {
             chart.config.window = { _enabled: false };
         }
-        if ((typeof chart.config.window.role == 'undefined') || (typeof chart.config.window.windowSize == 'undefined')) {
-            chart.config.window._enabled = false;
+        var config = chart.config.window;
+        if ((typeof config.role == 'undefined') || (typeof config.windowSize == 'undefined')) {
+            config._enabled = false;
             return;
         }
-        chart.config.window._enabled = true;
-        chart.config.window._initialized = false;
-        if (chart.config.window.role == 'preview') {
+        config._enabled = true;
+        config._initialized = false;
+
+        config._halfWindowSize = moment.duration((config.windowSize.asMilliseconds() / 2), 'milliseconds');
+
+        if (config.role == 'preview') {
             chart.config.options.onClick = function (event, elementsAtEvent)
             {
                 var dataPoint = {x: null, y: null};
@@ -23,11 +27,11 @@ var windowPlugin = Chart.PluginBase.extend({
                     }
                 }
 
-                var windowMin = moment(this.data.labels[0], moment.ISO_8601);
-                var windowMax = moment(this.data.labels[this.data.labels.length - 1], moment.ISO_8601);
+                var windowMin = this.scales['x-axis-0'].firstTick;
+                var windowMax = this.scales['x-axis-0'].lastTick;
 
                 var windowSize = this.config.window.windowSize;
-                var halfWindowSize = moment.duration((windowSize.asMilliseconds() / 2), 'milliseconds');
+                var halfWindowSize = this.config.window._halfWindowSize;
                 var windowStart = dataPoint.x.clone().subtract(halfWindowSize);
                 if (windowStart < windowMin) {
                     windowStart = windowMin;
@@ -42,54 +46,67 @@ var windowPlugin = Chart.PluginBase.extend({
                 this.config.linkedChart.scales['x-axis-0'].options.time.max = windowEnd;
                 this.config.linkedChart.update();
             };
-        } else if (chart.config.window.role == 'window') {
+        }
+    },
+    afterInit: function(chartCtrlr) {
+        var config = chartCtrlr.chart.config.window;
+        config._initialized = true;
+
+        if (!config._enabled) {
+            return;
+        }
+
+        var chart = chartCtrlr.chart;
+        if (config.role == 'window') {
             // Set the window on the large chart
-            var lastLabel = chart.config.data.labels[chart.config.data.labels.length - 1];
-            var windowEnd = moment(lastLabel, moment.ISO_8601);
-            var windowStart = windowEnd.clone().subtract(chart.config.window.windowSize);
+            var windowEnd = chartCtrlr.scales['x-axis-0'].lastTick;
+            var windowStart = windowEnd.clone().subtract(config.windowSize);
             chart.config.options.scales.xAxes[0].time.min = windowStart;
             chart.config.options.scales.xAxes[0].time.max = windowEnd;
         }
     },
-    afterInit: function(chartCtrlr) {
-        chartCtrlr.chart.config.window._initialized = true;
-    },
     afterUpdate: function(chartCtrlr) {
         var chart = chartCtrlr.chart;
-        if (! (chart.config.window._enabled && chart.config.window._initialized)) {
+        var config = chart.config.window;
+        if (! (config._enabled && config._initialized)) {
             return;
         }
+        if (config._updating) {
+            return;
+        }
+        config._updating = true;
 
         // Tell the preview chart what the currently viewed window is
-        if (chart.config.window.role == 'window') {
-            var windowStart = null, windowEnd = null;
-            var linkedChart = chart.config.linkedChart;
-
+        if (config.role == 'window') {
             if (typeof chartCtrlr.scales == 'undefined') {
                 return;
             }
 
-            windowStart = chartCtrlr.scales['x-axis-0'].options.time.min;
-            windowEnd = chartCtrlr.scales['x-axis-0'].options.time.max;
+            var windowStart = chartCtrlr.scales['x-axis-0'].options.time.min;
+            var windowEnd = chartCtrlr.scales['x-axis-0'].options.time.max;
             if (typeof windowStart == 'undefined') {
                 return;
             }
 
+            var linkedChart = chart.config.linkedChart;
             linkedChart.config.window.start = windowStart;
             linkedChart.config.window.end = windowEnd;
             linkedChart.update();
         }
+
+        config._updating = false;
     },
     afterDraw: function(chartCtrlr, easing) {
         var chart = chartCtrlr.chart;
-        if (! (chart.config.window._enabled && chart.config.window._initialized)) {
+        var config = chart.config.window;
+        if (! (config._enabled && config._initialized)) {
             return;
         }
 
         // Draws the window rectangle onto the preview chart, using the values set in afterUpdate by the window chart
-        if (chart.config.window.role == 'preview') {
-            var windowStart = chart.config.window.start;
-            var windowEnd = chart.config.window.end;
+        if (config.role == 'preview') {
+            var windowStart = config.start;
+            var windowEnd = config.end;
             var windowStartPx = null;
             var windowEndPx = null;
             var topPx = null;
